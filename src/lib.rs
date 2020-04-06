@@ -6,9 +6,11 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::convert::TryInto;
+use std::convert::TryFrom;
 use std::error::Error;
 use std::fs;
 use na::Vector2;
+use na::Vector3;
 use crate::num::Integer;
 
 pub struct Config {
@@ -52,6 +54,16 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
         18 => aoc_daynine(&contents,2),
         19 => aoc_dayten(&contents),
         20 => aoc_dayten_parttwo(&contents),
+        21 => aoc_dayeleven(&contents),
+        22 => aoc_dayeleven_parttwo(&contents),
+        23 => aoc_daytwelve(&contents),
+        24 => aoc_daytwelve_part2(&contents),
+        25 => aoc_daythirteen(&contents),
+        26 => aoc_daythirteen_parttwo(&contents),
+        27 => aoc_dayfourteen(&contents),
+        28 => aoc_dayfourtteen_parttwo(&contents),
+        31 => aoc_daysixteen(&contents),
+        32 => aoc_daysixteen_parttwo(&contents),
         _ => ()
     };
 
@@ -152,6 +164,7 @@ struct IntOpCodeComp {
     output_values: VecDeque<i64>,
     index: usize,
     relative_base: i64,
+    waiting_on_input: bool,
     complete: bool
 }
 
@@ -163,6 +176,7 @@ impl IntOpCodeComp {
             output_values: VecDeque::new(),
             index: 0,
             relative_base: 0,
+            waiting_on_input: false,
             complete: intopcodes.len() == 0,
         }
     }
@@ -221,8 +235,9 @@ impl IntOpCodeComp {
                     Some(val) => {
                         self.store_at_index(val, store_index);
                         self.index += 2;
+                        self.waiting_on_input = false;
                     },
-                    None => ()  // just wait until we get an input at some point
+                    None => self.waiting_on_input = true  // just wait until we get an input at some point
                 };
             },
             4 => {
@@ -874,6 +889,608 @@ fn aoc_dayten_parttwo(input: &str) {
     println!("200th {:?} => {}", destruction_order[199], destruction_order[199].pos.x * 100 + destruction_order[199].pos.y);
 }
 
+enum RobotDirection {
+    Up,
+    Down,
+    Left,
+    Right
+}
+
+fn paint_tiles(intopcode: &Vec<i64>, starting_tile: i64) -> HashMap<Vector2<i32>, i64> {
+    let mut input_values = VecDeque::new();
+    input_values.push_back(starting_tile);
+
+    let mut comp = IntOpCodeComp::new(&intopcode, &input_values);
+    let mut robot_dir = RobotDirection::Up;
+    let mut robot_pos : Vector2<i32> = Vector2::new(0, 0);
+    let mut painted_tiles : HashMap<Vector2<i32>, i64> = HashMap::new();
+
+    while comp.complete == false
+    {
+        comp.tick();
+        
+        if comp.output_values.len() == 2
+        {
+            // paint_output: 0=black, 1=white
+            let paint_output = comp.output_values.pop_front().unwrap();
+            painted_tiles.insert( robot_pos, paint_output );
+            
+            // turn_output: 0=left 90, 1=right 90. Move forward 1 after turn.
+            let turn_output = comp.output_values.pop_front().unwrap();
+            match robot_dir {
+                RobotDirection::Up => {
+                    if turn_output == 1 {
+                        robot_dir = RobotDirection::Right;
+                    }
+                    else {
+                        robot_dir = RobotDirection::Left;
+                    }
+                },
+                RobotDirection::Down => {
+                    if turn_output == 1 {
+                        robot_dir = RobotDirection::Left;
+                    }
+                    else {
+                        robot_dir = RobotDirection::Right;
+                    }
+                },
+                RobotDirection::Right => {
+                    if turn_output == 1 {
+                        robot_dir = RobotDirection::Down;
+                    }
+                    else {
+                        robot_dir = RobotDirection::Up;
+                    }
+                },
+                RobotDirection::Left => {
+                    if turn_output == 1 {
+                        robot_dir = RobotDirection::Up;
+                    }
+                    else {
+                        robot_dir = RobotDirection::Down;
+                    }
+                },
+            }
+
+            // move forward one
+            match robot_dir {
+                RobotDirection::Up      => robot_pos.y += 1,
+                RobotDirection::Down    => robot_pos.y -= 1,
+                RobotDirection::Right   => robot_pos.x += 1,
+                RobotDirection::Left    => robot_pos.x -= 1,
+            }
+
+            // provide new input at current position
+            // if we have a painted_tile, use that value
+            // otherwise use black (0)
+            match painted_tiles.get( &robot_pos ) {
+                Some( &tile ) => comp.input_values.push_back( tile ),
+                None => comp.input_values.push_back( 0 )
+            }
+        }
+    }
+
+    painted_tiles.clone()
+}
+
+fn aoc_dayeleven(input: &str) {
+    // create computer for the painting bot
+    let intopcode = compute_intopcodes_from_string(input);
+    let painted_tiles = paint_tiles(&intopcode, 0);
+    println!("Painted Tiles: {}", painted_tiles.len());
+}
+
+fn aoc_dayeleven_parttwo(input: &str) {
+    let intopcode = compute_intopcodes_from_string(input);
+    let painted_tiles = paint_tiles(&intopcode, 1);
+
+    // Visualize the hashmap. First find the extents
+    let mut min : Vector2<i32> = Vector2::new(0, 0);
+    let mut max : Vector2<i32> = Vector2::new(0, 0);
+    for key in painted_tiles.keys() {
+        min.x = std::cmp::min(min.x, key.x);
+        min.y = std::cmp::min(min.y, key.y);
+        max.x = std::cmp::max(max.x, key.x);
+        max.y = std::cmp::max(max.y, key.y);
+    }
+
+    println!("Painted Tiles: {}, Min {:?}, Max {:?}", painted_tiles.len(), min, max);
+
+    for y in (min.y..=max.y).rev() { // reverse to properly flip the values, make sure last value is inclusive as well
+        for x in min.x..=max.x {
+            match painted_tiles.get(&Vector2::new(x, y)) {
+                Some(&tile) => {
+                    if tile == 1 {
+                        print!("#");
+                    }
+                    else {
+                        print!(".");
+                    }
+                },
+                None => { print!(".") }
+            }
+        }
+        println!();
+    }
+}
+
+#[derive(Debug)]
+#[derive(Clone)]
+#[derive(PartialEq)]
+#[derive(Eq)]
+#[derive(Hash)]
+struct Moon {   
+    pos : Vector3<i32>,
+    vel : Vector3<i32>
+}
+
+impl Moon {
+    pub fn new(line: &str) -> Moon {
+        // Format should be like <x=12, y=0, z=-15>
+        let v: Vec<&str> = line.split(|c| c == ',' || c == '=').collect();
+        let moon = Moon { 
+            pos : Vector3::new( v[1].parse().unwrap(), v[3].parse().unwrap(), v[5][..(v[5].len()-1)].parse().unwrap() ),
+            vel : Vector3::new( 0, 0, 0 )
+        };
+        moon
+    }
+
+    pub fn potential_energy(&self) -> i32 {
+        self.pos.x.abs() + self.pos.y.abs() + self.pos.z.abs()
+    }
+
+    pub fn kinetic_energy(&self) -> i32 {
+        self.vel.x.abs() + self.vel.y.abs() + self.vel.z.abs()
+    }
+
+    pub fn total_energy(&self) -> i32 {
+        self.potential_energy() * self.kinetic_energy()
+    }
+}
+
+fn sum_total_energy(moons: &Vec<Moon>) -> i32 {
+    moons.iter().map( |m| m.total_energy() ).sum()
+}
+
+fn step_moon_simulation(moons: &mut Vec<Moon>) {
+    // process the new velocity
+    for lhs in 0..moons.len() {
+        for rhs in lhs..moons.len() {
+            for i in 0..3 {
+                if moons[lhs].pos[i] != moons[rhs].pos[i] {
+                    if moons[lhs].pos[i] < moons[rhs].pos[i] {
+                        moons[lhs].vel[i] += 1;
+                        moons[rhs].vel[i] -= 1;
+                    }
+                    else {
+                        moons[lhs].vel[i] -= 1;
+                        moons[rhs].vel[i] += 1;
+                    }
+                }    
+            }
+        }
+    }
+
+    // apply the velocity to the position
+    for moon in moons {
+        moon.pos += moon.vel;
+    }
+}
+
+fn find_cycle_rate_for_axis(moon_base: &Vec<Moon>, axis_idx : usize) -> i64 {    
+    let mut state_hash = HashSet::new();
+
+    let mut moons = moon_base.clone();
+    let mut iteration : i64 = 0;
+
+    loop {
+        // process the new velocity
+        for lhs in 0..moons.len() {
+            for rhs in lhs..moons.len() {
+                if moons[lhs].pos[axis_idx] != moons[rhs].pos[axis_idx] {
+                    if moons[lhs].pos[axis_idx] < moons[rhs].pos[axis_idx] {
+                        moons[lhs].vel[axis_idx] += 1;
+                        moons[rhs].vel[axis_idx] -= 1;
+                    }
+                    else {
+                        moons[lhs].vel[axis_idx] -= 1;
+                        moons[rhs].vel[axis_idx] += 1;
+                    }
+                }    
+            }
+        }
+
+        // apply the velocity to the position
+        for moon in &mut moons {
+            moon.pos[axis_idx] += moon.vel[axis_idx];
+        }
+
+        if state_hash.insert(moons.clone()) == false {
+            return iteration
+        }
+
+        iteration += 1;
+    }
+}
+
+fn find_min_repeat_cycle(moon_base: &Vec<Moon>) -> i64 {
+    // cycles on each axis are independent of one another
+    let x_cycle = find_cycle_rate_for_axis(&moon_base, 0);
+    let y_cycle = find_cycle_rate_for_axis(&moon_base, 1);
+    let z_cycle = find_cycle_rate_for_axis(&moon_base, 2);
+
+    // min repeat cycle is just the lcm between these values
+    x_cycle.lcm( &y_cycle ).lcm( &z_cycle )
+}
+
+fn aoc_daytwelve(input: &str) {
+    let mut moons : Vec<Moon> = Vec::new();
+    for line in input.lines() {
+        moons.push( Moon::new( &line ));
+    }
+
+    // simulate 1000 times
+    for _ in 0..1000 {
+        step_moon_simulation(&mut moons);
+    }
+
+    let total_energy = sum_total_energy(&moons);
+    println!("Total Energy {}", total_energy);
+}
+
+fn aoc_daytwelve_part2(input: &str) {
+    let mut moons : Vec<Moon> = Vec::new();
+    for line in input.lines() {
+        moons.push( Moon::new( &line ));
+    }
+
+    let min_cycle = find_min_repeat_cycle( &moons );
+    // find the lcm between the cycles to find the 
+    println!("Min Cycle {}", min_cycle);
+}
+
+fn tick_block_game(comp: &mut IntOpCodeComp, score: &mut i64, screen_tiles: &mut HashMap<Vector2<i64>, i64>) {
+    
+    while comp.complete == false
+    {
+        comp.tick();
+        
+        if comp.output_values.len() >= 3
+        {
+            let pos = Vector2::new( comp.output_values.pop_front().unwrap(),
+                                    comp.output_values.pop_front().unwrap() );
+            if pos.x == -1 && pos.y == 0 {
+                *score = comp.output_values.pop_front().unwrap();
+            }
+            else {
+                let tile_id = comp.output_values.pop_front().unwrap();
+
+                // Add to the hash
+                screen_tiles.insert( pos, tile_id );
+            }
+        }
+
+        if comp.waiting_on_input == true {
+            break;
+        }
+
+    }
+}
+
+fn count_blocks(screen_tiles: &HashMap<Vector2<i64>, i64>) -> usize {
+    let block_count = screen_tiles.values()
+                        .filter(|t| **t == 2)
+                        .count();
+    block_count
+}
+
+fn read_block_game_input() -> i64 {
+    loop {
+        println!("Input: -1 left, 0 stay, 1 right" );
+        let mut input = String::new();
+        match std::io::stdin().read_line(&mut input) {
+            Ok(_) => {
+                println!("Input {}", input);
+                match input.trim().parse() {
+                    Ok(val) => {
+                        match val {
+                            -1 => return val,
+                            0 => return val,
+                            1 => return val,
+                            _ => println!("error: {} not a valid command", val)
+                        };
+                    },
+                    Err(error) => println!("error: {} try again", error),
+                }
+            },
+            Err(error) => println!("error: {} try again", error),
+        }
+    }
+}
+
+fn get_tile_pos( screen_tiles: &HashMap<Vector2<i64>, i64>, tile: i64 ) -> Option<Vector2<i64>> {
+    for (key, val) in screen_tiles.iter() {
+        if *val == tile {
+            return Some(*key)
+        }
+    }
+
+    None
+}
+
+fn play_block_game(intopcode: &Vec<i64>, auto_play: bool) -> HashMap<Vector2<i64>, i64> {
+    let input_values = VecDeque::new();
+
+    let mut comp = IntOpCodeComp::new(&intopcode, &input_values);
+    let mut screen_tiles : HashMap<Vector2<i64>, i64> = HashMap::new();
+    let mut score = 0;
+
+    while comp.complete == false {
+        tick_block_game(&mut comp, &mut score, &mut screen_tiles);
+        visualize_game(&screen_tiles, score);
+
+        if comp.waiting_on_input == true {
+            if auto_play {
+                // Align the paddle with the ball
+                let paddle_pos = get_tile_pos( &screen_tiles, 3 ).unwrap();
+                let ball_pos = get_tile_pos( &screen_tiles, 4 ).unwrap();
+
+                let mut input = 0;
+                if paddle_pos.x < ball_pos.x {
+                    input = 1;
+                }
+                else if paddle_pos.x > ball_pos.x {
+                    input = -1;
+                }
+                comp.input_values.push_back(input);
+            }
+            else {
+                let input = read_block_game_input();
+                comp.input_values.push_back(input);
+            }
+        }
+    }
+
+    screen_tiles
+}
+
+fn visualize_game(screen_tiles: &HashMap<Vector2<i64>, i64>, score: i64) {
+    // Visualize the hashmap. First find the extents
+    let mut min : Vector2<i64> = Vector2::new(0, 0);
+    let mut max : Vector2<i64> = Vector2::new(0, 0);
+    for key in screen_tiles.keys() {
+        min.x = std::cmp::min(min.x, key.x);
+        min.y = std::cmp::min(min.y, key.y);
+        max.x = std::cmp::max(max.x, key.x);
+        max.y = std::cmp::max(max.y, key.y);
+    }
+
+    for y in (min.y..=max.y).rev() { // reverse to properly flip the values, make sure last value is inclusive as well
+        for x in min.x..=max.x {
+            match screen_tiles.get(&Vector2::new(x, y)) {
+                Some(&tile) => {
+                    let tile_char = match tile {
+                        1 => '#', // wall tile
+                        2 => 'B', // block tile
+                        3 => '=', // horizontal paddle tile
+                        4 => 'o', // ball tile
+                        _ => ' ', // 0 or other is empty
+                    };
+                    print!("{}", tile_char);
+                },
+                None => { print!(" ") }
+            }
+        }
+        println!();
+    }
+    println!("Score {}", score);
+}
+
+fn aoc_daythirteen(input: &str) {
+    let intopcode = compute_intopcodes_from_string(input);
+    let screen_tiles = play_block_game(&intopcode, false);
+
+    // Day thirteen only cares about the current state of the blocks
+    println!("Block count {}", count_blocks(&screen_tiles));
+}
+
+fn aoc_daythirteen_parttwo(input: &str) {
+    let mut intopcode = compute_intopcodes_from_string(input);
+    intopcode[0] = 2;   // set to 2 to enter free play
+
+    play_block_game(&intopcode, true);
+}
+
+#[derive(Debug)]
+#[derive(PartialEq, Eq)]
+struct Reaction {
+    inputs: Vec<(i64, String)>, 
+    output: (i64, String),
+}
+
+fn parse_reaction(line: &str) -> Reaction {
+    // Example: 7 A, 1 B => 1 C
+    let mut split_line = line.split_terminator("=>");
+    let inputs_str = split_line.next().unwrap().trim();
+    let output_str = split_line.next().unwrap().trim();
+
+    let mut inputs = Vec::new();
+    for i in inputs_str.split_terminator(",") {
+        let mut input_str = (*i).trim().split_terminator(" ");
+        inputs.push( ( input_str.next().unwrap().parse().unwrap(), String::from(input_str.next().unwrap()) ) );
+    }
+
+    let mut out = output_str.split_terminator(" ");
+    let output = (out.next().unwrap().parse().unwrap(), String::from(out.next().unwrap()));
+
+    Reaction { inputs, output }
+}
+
+fn parse_dayfourteeninput(input: &str) -> HashMap<String, Reaction> {
+    let mut hashmap = HashMap::new();
+    for line in input.lines() {
+        let reaction = parse_reaction(line);
+        hashmap.insert( reaction.output.1.clone(), reaction );
+    }
+    hashmap
+}
+
+fn update_for_type(reactions: &HashMap<String, Reaction>, resource: &String, amount : i64, resources_have: &mut HashMap<String, i64>) {
+    let reaction_for_resource = reactions.get(resource).unwrap();
+    let inputs = &reaction_for_resource.inputs;
+    let output = &reaction_for_resource.output;
+    let multiplier = ( amount + output.0 - 1 ) / output.0;
+
+    // Base case for ORE
+    if inputs.len() == 1 && inputs[0].1 == "ORE" {
+        let ore = resources_have.entry("ORE".to_string()).or_insert(0);
+        *ore += multiplier * inputs[0].0;
+    }
+    else {
+        // Update all our inputs
+        for input in inputs {
+            let res_amount = multiplier * input.0;
+            let res_name = &input.1;
+            let res_count = resources_have.entry(res_name.to_string()).or_insert(0);
+
+            let mut res_remaining = *res_count - res_amount;
+            if res_remaining < 0 {
+                // Need to generate more of this resource
+                update_for_type(reactions, &res_name, -res_remaining, resources_have);
+                let res_count = resources_have[res_name];
+                res_remaining = res_count - res_amount;
+            }
+
+            resources_have.insert(res_name.to_string(), res_remaining);
+        }
+    }
+
+    // This should generate this amount of resources
+    let res_count = resources_have.entry(resource.to_string()).or_insert(0);
+    *res_count += multiplier * output.0;
+}
+
+fn ore_needed_for_fuel(reactions: &HashMap<String, Reaction>, fuel_amount: i64) -> i64 {
+    let mut resources_have = HashMap::new();
+    let fuel_resource = String::from("FUEL");
+
+    update_for_type(reactions, &fuel_resource, fuel_amount, &mut resources_have);
+
+    resources_have["ORE"]
+}
+
+fn aoc_dayfourteen(input: &str) {
+    let reaction_hashmap = parse_dayfourteeninput( input );
+    println!("ORE NEEDED {}", ore_needed_for_fuel(&reaction_hashmap, 1));
+}
+
+fn aoc_dayfourtteen_parttwo(input: &str) {
+    // binary search the amount of fuel 10000000000 ore can produce.
+    let reaction_hashmap = parse_dayfourteeninput( input );
+    let mut min_fuel : i64 = 1;
+    let mut max_fuel : i64 = 1000000000000;
+    while min_fuel < max_fuel {
+        let fuel_check = ( max_fuel + min_fuel ) / 2;
+        let ore_needed = ore_needed_for_fuel(&reaction_hashmap, fuel_check );
+        println!("fuel_check {}, ore_needed {}", fuel_check, ore_needed);
+
+        if ore_needed == 1000000000000 {
+            max_fuel = fuel_check;
+            min_fuel = fuel_check;
+        }
+        else if ore_needed > 1000000000000 {
+            // TOO MUCH
+            max_fuel = fuel_check - 1;
+        }
+        else {
+            min_fuel = fuel_check + 1;
+        }
+    }
+}
+
+fn parse_daysixteen_input(input: &str) -> Vec<i32> {
+    let ret : Vec<i32> = input.chars().map(|c| i32::try_from(c.to_digit(10).unwrap()).unwrap()).collect();
+    ret
+}
+
+fn process_frequency(freq: &Vec<i32>, offset: usize) -> Vec<i32> {
+    let mut new_freq : Vec<i32> = Vec::new();
+    new_freq.resize(freq.len(), 0);
+
+    for round in offset..freq.len() {
+        let mut idx : usize = round;
+        let mut mult = 1;
+        let idx_min = offset - std::cmp::min(offset, round);
+        while idx < freq.len() {
+            if idx >= idx_min {
+                let max_idx = std::cmp::min(idx+round+1, freq.len());
+                for nidx in idx..max_idx {
+                    new_freq[round] += mult * freq[nidx];
+                }
+            }
+
+            idx += 2 * (round + 1);
+            mult *= -1;
+        }
+
+        new_freq[round] = (new_freq[round] % 10).abs();
+    }
+
+    new_freq
+}
+
+fn process_frequency_rev(freq: &Vec<i32>, offset: usize) -> Vec<i32> {
+    let mut new_freq : Vec<i32> = Vec::new();
+    new_freq.resize(freq.len(), 0);
+    new_freq[freq.len()-1] = freq[freq.len() - 1];
+    for round in (offset..freq.len()-1).rev() {
+        new_freq[round] = new_freq[round + 1];
+        new_freq[round] = (new_freq[round] + freq[round]) % 10;
+    }
+
+    new_freq
+}
+
+fn process_frequencies(freq: &Vec<i32>, count: usize, offset: usize, rev: bool) -> Vec<i32> {
+    let mut new_freq = freq.clone();
+    for _c in 0..count {
+        if rev {
+            new_freq = process_frequency_rev(&new_freq, offset);
+        }
+        else {
+            new_freq = process_frequency(&new_freq, offset);
+        }
+    }
+    new_freq
+}
+
+fn compute_offset(freq: &Vec<i32>) -> usize {
+    let mut offset : usize = 0;
+    for idx in 0..7 {
+        offset *= 10;
+        offset += usize::try_from( freq[idx] ).unwrap();
+    }
+    offset
+}
+
+fn aoc_daysixteen(input: &str) {
+    let vals = parse_daysixteen_input(input);
+    let freq = process_frequencies(&vals, 100, 0, false);
+    println!("First 8 Vals: {:?}", freq.get(..8));
+}
+
+fn aoc_daysixteen_parttwo(input: &str) {
+    let vals = parse_daysixteen_input(input);
+    let mut vals_repeat = Vec::with_capacity(vals.len() * 10000);
+    for _ in 0..10000 {
+        vals_repeat.extend_from_slice(vals.as_slice());
+    }    
+    let offset = compute_offset(&vals);
+    let new_freq = process_frequencies(&vals_repeat, 100, offset, true);
+
+    println!("8 Vals: {:?}", new_freq.get(offset..(offset+8)));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1275,5 +1892,123 @@ mod tests {
         assert_eq!(asteroid_do[199].pos, Vector2::new(8,2));
         assert_eq!(asteroid_do[200].pos, Vector2::new(10,9));
         assert_eq!(asteroid_do[298].pos, Vector2::new(11,1));
+    }
+
+    #[test]
+    fn moon_simulation_test()
+    {
+        {
+            let moon0 = Moon::new("<x=-1, y=0, z=2>");
+            assert_eq!(moon0.pos, Vector3::new(-1, 0, 2));
+            assert_eq!(moon0.vel, Vector3::new(0, 0, 0));
+        }
+
+        {
+            let mut moons = vec![Moon::new("<x=-1, y=0, z=2>"),
+                                 Moon::new("<x=2, y=-10, z=-7>"),
+                                 Moon::new("<x=4, y=-8, z=8>"),
+                                 Moon::new("<x=3, y=5, z=-1>")];
+            step_moon_simulation(&mut moons);
+            assert_eq!(moons[0].vel, Vector3::new(3, -1, -1));
+            assert_eq!(moons[0].pos, Vector3::new(2, -1, 1));
+            assert_eq!(moons[1].vel, Vector3::new(1, 3, 3));
+            assert_eq!(moons[1].pos, Vector3::new(3, -7, -4));
+            assert_eq!(moons[2].vel, Vector3::new(-3, 1, -3));
+            assert_eq!(moons[2].pos, Vector3::new(1, -7, 5));
+            assert_eq!(moons[3].vel, Vector3::new(-1, -3, 1));
+            assert_eq!(moons[3].pos, Vector3::new(2, 2, 0));
+
+            // do 9 more steps
+            for _ in 0..9 {
+                step_moon_simulation(&mut moons);
+            }
+
+            // vet final positions
+            assert_eq!(moons[0].vel, Vector3::new(-3, -2, 1));
+            assert_eq!(moons[0].pos, Vector3::new(2, 1, -3));
+            assert_eq!(moons[1].vel, Vector3::new(-1, 1, 3));
+            assert_eq!(moons[1].pos, Vector3::new(1, -8, 0));
+            assert_eq!(moons[2].vel, Vector3::new(3, 2, -3));
+            assert_eq!(moons[2].pos, Vector3::new(3, -6, 1));
+            assert_eq!(moons[3].vel, Vector3::new(1, -1, -1));
+            assert_eq!(moons[3].pos, Vector3::new(2, 0, 4));
+
+            // vet total energy
+            assert_eq!(moons[0].potential_energy(), 6);
+            assert_eq!(moons[0].kinetic_energy(), 6);
+            assert_eq!(moons[0].total_energy(), 36);
+            assert_eq!(moons[1].potential_energy(), 9);
+            assert_eq!(moons[1].kinetic_energy(), 5);
+            assert_eq!(moons[1].total_energy(), 45);
+            assert_eq!(moons[2].potential_energy(), 10);
+            assert_eq!(moons[2].kinetic_energy(), 8);
+            assert_eq!(moons[2].total_energy(), 80);
+            assert_eq!(moons[3].potential_energy(), 6);
+            assert_eq!(moons[3].kinetic_energy(), 3);
+            assert_eq!(moons[3].total_energy(), 18);
+            assert_eq!(sum_total_energy(&moons), 179);
+        }
+    }
+
+    #[test]
+    fn reaction_input_test() {
+        let reaction = parse_reaction("59 CQGW, 15 MSNG, 6 XGKRF, 10 LJRQ, 1 HRKGV, 15 RKVC => 1 FUEL");
+        assert_eq!(reaction, Reaction { inputs: vec![(59, String::from("CQGW")), 
+                                                     (15, String::from("MSNG")),
+                                                     (6, String::from("XGKRF")),
+                                                     (10, String::from("LJRQ")), 
+                                                     (1, String::from("HRKGV")), 
+                                                     (15, String::from("RKVC"))], 
+                                        output: (1, String::from("FUEL")) } );
+    }
+
+    #[test]
+    fn reaction_initial_test() {
+        let input = "10 ORE => 10 A
+        1 ORE => 1 B
+        7 A, 1 B => 1 C
+        7 A, 1 C => 1 D
+        7 A, 1 D => 1 E
+        7 A, 1 E => 1 FUEL";
+        let hashmap = parse_dayfourteeninput(input);
+        assert_eq!(ore_needed_for_fuel(&hashmap, 1), 31);
+    }
+
+    #[test]
+    fn test_day_sixteen_input() {
+        let freq_0 = parse_daysixteen_input("12345678");
+        assert_eq!( freq_0, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+        let freq_1 = process_frequencies(&freq_0, 1, 0); 
+        assert_eq!( freq_1, vec![4,8,2,2,6,1,5,8]);
+        // let freq_2 = process_frequencies(&freq_1, 1, 0);
+        // assert_eq!( freq_2, vec![3,4,0,4,0,4,3,8]);
+        // let freq_3 = process_frequencies(&freq_2, 1, 0);
+        // assert_eq!( freq_3, vec![0,3,4,1,5,5,1,8]);
+        // let freq_4 = process_frequencies(&freq_3, 1, 0);
+        // assert_eq!( freq_4, vec![0,1,0,2,9,4,9,8]);
+        // assert_eq!( process_frequencies(&freq_0, 4, 0), vec![0,1,0,2,9,4,9,8]);
+    }
+
+    #[test]
+    fn test_day_sixteen_additional() {
+        let freq_0 = parse_daysixteen_input("80871224585914546619083218645595");
+        let freq_100 = process_frequencies(&freq_0, 100, 0);
+        assert_eq!( freq_100.split_at(8).0, [2,4,1,7,6,1,7,6]);
+    }
+
+    #[test]
+    fn test_day_sixteen_parttwo() {
+        let freq_0 = parse_daysixteen_input("03036732577212944063491565474664");
+        let freq_offset = compute_offset(&freq_0);
+        let mut freq_repeat = Vec::with_capacity( freq_0.len() * 10000 );
+        for _ in 0..10000 {
+            freq_repeat.extend_from_slice(freq_0.as_slice());
+        }
+
+        let freq_100 = process_frequencies(&freq_repeat, 1, freq_offset);
+        assert_eq!( freq_100.get(freq_offset..(freq_offset+1)).unwrap(), [8, 4, 4, 6, 2, 0, 2, 6] );
+    
+        //    02935109699940807407585447034323 becomes 78725270.
+        //03081770884921959731165446850517 becomes 53553731.
     }
 }
